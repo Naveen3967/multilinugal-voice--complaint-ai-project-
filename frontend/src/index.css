@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    /* Government Navy Blue */
+    --background: 210 20% 98%;
+    --foreground: 220 40% 13%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 40% 13%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 40% 13%;
+
+    /* Deep Navy - official government blue */
+    --primary: 220 55% 18%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Light slate */
+    --secondary: 210 25% 94%;
+    --secondary-foreground: 220 40% 13%;
+
+    --muted: 210 20% 95%;
+    --muted-foreground: 215 14% 45%;
+
+    /* Saffron accent */
+    --accent: 25 92% 52%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 25% 88%;
+    --input: 214 25% 88%;
+    --ring: 220 55% 18%;
+
+    --radius: 0.5rem;
+
+    /* Status colors */
+    --status-pending: 38 92% 50%;
+    --status-reviewing: 217 91% 60%;
+    --status-resolved: 142 71% 45%;
+
+    /* Government gold */
+    --gov-gold: 43 96% 56%;
+    --gov-gold-foreground: 220 40% 13%;
+
+    /* Ashoka blue */
+    --ashoka-blue: 220 70% 35%;
+
+    --sidebar-background: 220 55% 18%;
+    --sidebar-foreground: 210 20% 95%;
+    --sidebar-primary: 25 92% 52%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 50% 25%;
+    --sidebar-accent-foreground: 210 20% 95%;
+    --sidebar-border: 220 45% 28%;
+    --sidebar-ring: 25 92% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Noto Sans', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .gov-gradient {
+    background: linear-gradient(135deg, hsl(220 55% 18%) 0%, hsl(220 70% 28%) 50%, hsl(220 55% 18%) 100%);
+  }
+  .saffron-gradient {
+    background: linear-gradient(90deg, hsl(25 92% 52%) 0%, hsl(38 96% 56%) 100%);
+  }
+  .gov-border-top {
+    border-top: 4px solid hsl(25 92% 52%);
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+}
+
+/* Scroll reveal animation */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.animate-reveal-up {
+  animation: reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Pulse ring for mic button */
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 hsla(0, 72%, 51%, 0.5); }
+  70% { box-shadow: 0 0 0 16px hsla(0, 72%, 51%, 0); }
+  100% { box-shadow: 0 0 0 0 hsla(0, 72%, 51%, 0); }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+/* Chat message animation */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-msg-in {
+  animation: msg-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}

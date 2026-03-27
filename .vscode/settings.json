@@ -1,0 +1,6 @@
+{
+    "sqltools.connections": [],
+    "files.watcherExclude": {
+        "**/target": true
+    }
+}
