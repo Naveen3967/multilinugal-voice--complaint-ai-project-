@@ -50,7 +50,7 @@ export default function AdminLoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-lg border border-input bg-background text-foreground focus:ring-2 focus:ring-accent focus:border-accent outline-none transition-all"
-                  placeholder="admin@gmail.com"
+                  placeholder="2024naveenkumar.k@vidyashilp.edu.in"
                 />
               </div>
               <div>
