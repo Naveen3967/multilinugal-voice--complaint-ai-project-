@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useLanguage } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/useLanguage";
 
 const SPEECH_LANG_FALLBACKS: Record<string, string[]> = {
   "hi-IN": ["hi-IN", "hi", "en-IN", "en-US"],
@@ -25,6 +25,13 @@ const SPEECH_LANG_FALLBACKS: Record<string, string[]> = {
   "gu-IN": ["gu-IN", "hi-IN", "en-IN"],
   "or-IN": ["or-IN", "bn-IN", "hi-IN", "en-IN"],
   "en-IN": ["en-IN", "en-GB", "en-US", "hi-IN"],
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
+type SpeechCapableWindow = Window & {
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  SpeechRecognition?: SpeechRecognitionConstructor;
 };
 
 const getSpeechCandidates = (requested: string): string[] => {
@@ -63,11 +70,34 @@ export function useSpeechToText(onSilence?: (text: string) => void) {
   const [isListening, setIsListening] = useState(false);
   const [interimText, setInterimText] = useState("");
 
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const activeRef = useRef(false);         // true while voice mode is on
   const onSilenceRef = useRef(onSilence);  // always latest callback
   const finalRef = useRef("");             // accumulated final transcript
   const recognitionLangRef = useRef(language.speechCode);
+  const unsupportedShownRef = useRef(false);
+  const permissionShownRef = useRef(false);
+
+  const primeMicrophonePermission = useCallback(async (): Promise<boolean> => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return true;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      return true;
+    } catch {
+      activeRef.current = false;
+      setIsListening(false);
+      setInterimText("");
+      if (!permissionShownRef.current) {
+        permissionShownRef.current = true;
+        window.alert("Microphone access is blocked. Please allow microphone permission for this site and try again.");
+      }
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     recognitionLangRef.current = getSpeechCandidates(language.speechCode)[0];
@@ -76,19 +106,21 @@ export function useSpeechToText(onSilence?: (text: string) => void) {
   // Keep the callback ref in sync
   useEffect(() => { onSilenceRef.current = onSilence; }, [onSilence]);
 
-  // If user changes language while mic is active, restart recognizer with new language.
-  useEffect(() => {
-    if (!activeRef.current) return;
-    recognitionRef.current?.abort();
-    setTimeout(() => {
-      if (activeRef.current) startSession();
-    }, 120);
-  }, [language.speechCode]);
-
   const startSession = useCallback(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition || !activeRef.current) return;
+    const speechWindow = window as SpeechCapableWindow;
+    const SpeechRecognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!activeRef.current) return;
+
+    if (!SpeechRecognition) {
+      activeRef.current = false;
+      setIsListening(false);
+      setInterimText("");
+      if (!unsupportedShownRef.current) {
+        unsupportedShownRef.current = true;
+        window.alert("Voice input is not supported in this browser. Please use Chrome or Edge and allow microphone permission.");
+      }
+      return;
+    }
 
     const recognition = new SpeechRecognition();
     recognition.lang = recognitionLangRef.current;
@@ -103,7 +135,7 @@ export function useSpeechToText(onSilence?: (text: string) => void) {
       setInterimText("");
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
@@ -116,7 +148,7 @@ export function useSpeechToText(onSilence?: (text: string) => void) {
       setInterimText(interim || finalRef.current);
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === "language-not-supported") {
         const candidates = getSpeechCandidates(language.speechCode);
         const currentIndex = candidates.findIndex((code) => code === recognitionLangRef.current);
@@ -131,6 +163,10 @@ export function useSpeechToText(onSilence?: (text: string) => void) {
         activeRef.current = false;
         setIsListening(false);
         setInterimText("");
+        if (!permissionShownRef.current) {
+          permissionShownRef.current = true;
+          window.alert("Microphone access is blocked. Please allow microphone permission for this site and try again.");
+        }
         return;
       }
 
@@ -168,6 +204,15 @@ export function useSpeechToText(onSilence?: (text: string) => void) {
     }
   }, [language.speechCode]);
 
+  // If user changes language while mic is active, restart recognizer with new language.
+  useEffect(() => {
+    if (!activeRef.current) return;
+    recognitionRef.current?.abort();
+    setTimeout(() => {
+      if (activeRef.current) startSession();
+    }, 120);
+  }, [startSession]);
+
   const startListening = useCallback(() => {
     activeRef.current = true;
     startSession();
@@ -201,7 +246,7 @@ export function useSpeechToText(onSilence?: (text: string) => void) {
     };
   }, []);
 
-  return { isListening, interimText, startListening, stopListening, pauseListening, resumeListening };
+  return { isListening, interimText, startListening, stopListening, pauseListening, resumeListening, primeMicrophonePermission };
 }
 
 /**

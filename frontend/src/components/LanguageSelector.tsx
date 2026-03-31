@@ -1,4 +1,5 @@
-import { LANGUAGES, useLanguage } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/useLanguage";
+import { LANGUAGES } from "@/contexts/languages";
 
 export default function LanguageSelector() {
   const { language, setLanguage, t } = useLanguage();

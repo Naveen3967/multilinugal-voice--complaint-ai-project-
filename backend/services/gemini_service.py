@@ -6,6 +6,7 @@ from pathlib import Path
 import google.generativeai as genai
 
 from config import settings
+from services.ollama_service import ollama_service
 from services.video_service import video_service
 from utils.constants import COMPLAINT_TYPES, REQUIRED_COMPLAINT_FIELDS, SUPPORTED_LANGUAGES
 
@@ -15,10 +16,23 @@ logger = logging.getLogger(__name__)
 class GeminiService:
     def __init__(self) -> None:
         genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel(self._pick_model_name())
+        self.model = None
+        self._initialized = False
+
+    def _ensure_initialized(self) -> None:
+        if self._initialized:
+            return
+        try:
+            self.model = genai.GenerativeModel(self._pick_model_name())
+            self._initialized = True
+        except Exception as e:
+            print(f"Warning: Could not initialize Gemini model: {e}")
+            self.model = None
+            self._initialized = False
 
     def _pick_model_name(self) -> str:
         preferred = [
+            "gemini-2.5-flash",
             "gemini-2.0-flash",
             "gemini-1.5-flash-latest",
             "gemini-1.5-flash",
@@ -34,10 +48,13 @@ class GeminiService:
         except Exception as e:
             print(f"Error picking model: {e}")
             pass
-        return "gemini-1.5-flash-latest"
+        return "gemini-2.5-flash"
 
     def _generate_with_retry(self, prompt: str | list, retries: int = 3) -> str:
         import time
+        self._ensure_initialized()
+        if not self.model:
+            return ""
         for i in range(retries):
             try:
                 response = self.model.generate_content(prompt)
@@ -79,7 +96,11 @@ class GeminiService:
             f"Text: {text}"
         )
         response_text = self._generate_with_retry(prompt)
-        guess = (response_text or "English").strip()
+        guess = (response_text or "").strip()
+        if not guess and ollama_service.is_available():
+            guess = (ollama_service.detect_language(text) or "").strip()
+        if not guess:
+            guess = "English"
         return guess if guess in SUPPORTED_LANGUAGES else "English"
 
     def translate_text(self, text: str, target_language: str) -> str:
@@ -91,7 +112,10 @@ class GeminiService:
             f"Text: {text}"
         )
         response_text = self._generate_with_retry(prompt)
-        return (response_text or "").strip()
+        translated = (response_text or "").strip()
+        if not translated and ollama_service.is_available():
+            translated = (ollama_service.translate_text(text, target_language) or "").strip()
+        return translated
 
     def to_english(self, text: str) -> str:
         return self.translate_text(text, "English")
@@ -151,6 +175,7 @@ Return ONLY valid JSON, no extra text:
         payload = self._safe_json_parse(response_text or "")
         if not payload:
             return {
+                "_provider_error": True,
                 "assistant_response": self.translate_text("What can I help you with?", user_language),
                 "intent": "general",
                 "field_updates": {},
@@ -173,9 +198,10 @@ Return ONLY valid JSON, no extra text:
         filename = path.name
         file_size_mb = path.stat().st_size / (1024 * 1024)
         summary = ""
+        self._ensure_initialized()
         
         # Try Gemini analysis if API key is valid
-        if settings.gemini_api_key and settings.gemini_api_key != "dev_key_placeholder":
+        if settings.gemini_api_key and settings.gemini_api_key != "dev_key_placeholder" and self.model:
             prompt = (
                 "Extract all meaningful text and cyber-crime-relevant details from this file. "
                 "Return plain text summary with names, accounts, UTR, links, timestamps, and suspicious indicators if present. "
@@ -225,7 +251,7 @@ Return ONLY valid JSON, no extra text:
                 summary = f"[Evidence uploaded: {filename} ({mime_type})]"
                 logger.warning(f"No text extracted from {filename}, using basic fallback")
         else:
-            logger.info(f"⚠️  Gemini API key not configured, using fallback for {file_path}")
+            logger.info(f"⚠️  Gemini unavailable, using fallback for {file_path}")
             # Use informative fallback summary
             summary = f"[Evidence: {filename} ({mime_type})]"
 
@@ -299,6 +325,23 @@ Return ONLY valid JSON, no extra text:
         max_retries = 3
         extracted_result = None
         text = ""
+        self._ensure_initialized()
+
+        if not self.model:
+            logger.warning("Gemini unavailable for ID proof analysis; using fallback extraction")
+            return {
+                "document_type": "",
+                "name": "",
+                "id_number": "",
+                "dob": "",
+                "address": "",
+                "phone": "",
+                "email": "",
+                "confidence": "LOW",
+                "extraction_status": "UNCLEAR",
+                "missing_fields": ["name", "phone", "email", "document_type"],
+                "extracted_text": self.analyze_evidence(file_path=file_path, mime_type=mime_type),
+            }
 
         for attempt in range(max_retries):
             try:
@@ -381,7 +424,7 @@ Return ONLY valid JSON, no extra text:
         }
 
     def transcribe_audio(self, file_path: str, mime_type: str) -> str:
-        """Transcribe spoken audio/video to text using Gemini multimodal."""
+        """Transcribe spoken audio/video to text using Gemini multimodal with Ollama fallback hook."""
         prompt = (
             "Transcribe the spoken content in this audio/video file exactly as spoken. "
             "Return only the transcription text, nothing else. "
@@ -395,6 +438,11 @@ Return ONLY valid JSON, no extra text:
 
         filename = path.name
         max_retries = 2
+        self._ensure_initialized()
+
+        if not self.model:
+            logger.warning("Gemini unavailable for speech-to-text, trying Ollama fallback")
+            return ollama_service.transcribe_audio(file_path, mime_type)
         
         for attempt in range(max_retries):
             try:
@@ -431,9 +479,10 @@ Return ONLY valid JSON, no extra text:
                 
                 if attempt == max_retries - 1:
                     logger.error(f"   Transcription failed after {max_retries} attempts")
-                    return ""
+                    break
         
-        return ""
+        logger.warning("Gemini transcription failed after retries; trying Ollama fallback")
+        return ollama_service.transcribe_audio(file_path, mime_type)
 
 
 gemini_service = GeminiService()

@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 
 from database import get_db
+from config import settings
 from schemas.chat import ChatRequest, ChatResponse
 from services.conversation_service import conversation_service
 from services.gemini_service import gemini_service
@@ -117,7 +118,7 @@ def _translate_safe(text: str, language: str) -> str:
     if ollama_service.is_available():
         translated = ollama_service.translate_text(text, language)
 
-    gemini_api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    gemini_api_key = (settings.gemini_api_key or "").strip()
     gemini_enabled = bool(gemini_api_key) and not gemini_api_key.startswith("dev_dummy")
     if not translated and gemini_enabled:
         translated = translation_service.translate(text, language)
@@ -207,14 +208,54 @@ def _append_unknown_hint(response_text: str, next_field: str | None, language: s
 
 
 def _spoken_numbers_to_digits(message: str) -> str:
+    """Convert spoken number words to digits, handling multipliers like 'triple', 'double', 'when'."""
     word_map = {
         "zero": "0", "oh": "0", "o": "0",
         "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
         "six": "6", "seven": "7", "eight": "8", "nine": "9",
     }
-    tokens = re.findall(r"[a-zA-Z]+", (message or "").lower())
-    digits = "".join(word_map[token] for token in tokens if token in word_map)
-    return digits
+    multipliers = {
+        "triple": 3, "treble": 3,
+        "double": 2, "twice": 2,
+        "single": 1, "when": 1,  # "when" is often speech-recognition artifact for "one"
+    }
+    
+    text = (message or "").lower()
+    result = []
+    
+    # Match both words and digits
+    tokens = re.findall(r"[a-zA-Z]+|\d", text)
+    
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        
+        # Check if current token is a multiplier
+        if token in multipliers and i + 1 < len(tokens):
+            multiplier = multipliers[token]
+            next_token = tokens[i + 1]
+            
+            # Get the next digit (from either word_map or already a digit)
+            if next_token in word_map:
+                digit = word_map[next_token]
+                result.append(digit * multiplier)  # Repeat digit multiplier times
+                i += 2
+                continue
+            elif next_token.isdigit():
+                result.append(next_token * multiplier)  # Repeat digit multiplier times
+                i += 2
+                continue
+        
+        # Regular number word
+        if token in word_map:
+            result.append(word_map[token])
+        # Or already a digit
+        elif token.isdigit():
+            result.append(token)
+        
+        i += 1
+    
+    return "".join(result)
 
 
 def _extract_phone_digits(message: str) -> str:
@@ -225,6 +266,46 @@ def _extract_phone_digits(message: str) -> str:
     if len(digits) == 12 and digits.startswith("91"):
         digits = digits[2:]
     return digits
+
+
+def _normalize_spoken_email(message: str) -> str:
+    """Convert spoken email words (at/dot) into a machine-parseable email string."""
+    text = _normalize(message).lower()
+    if not text:
+        return ""
+
+    # Remove common lead-ins so only address tokens remain.
+    text = re.sub(
+        r"^(?:my\s+)?(?:e-?mail|email|mail(?:\s+id)?)\s+(?:is|id\s+is|address\s+is)\s+",
+        "",
+        text,
+    )
+    text = re.sub(r"^(?:email|mail)\s*[:\-]\s*", "", text)
+
+    text = re.sub(r"\b(at|rate)\b", " @ ", text)
+    text = re.sub(r"\b(dot|dt)\b", " . ", text)
+    text = re.sub(r"\b(underscore)\b", " _ ", text)
+    text = re.sub(r"\b(dash|hyphen)\b", " - ", text)
+
+    # Normalize spaces around symbols, then collapse all spaces for final email token.
+    text = re.sub(r"\s*@\s*", "@", text)
+    text = re.sub(r"\s*\.\s*", ".", text)
+    text = re.sub(r"\s*_\s*", "_", text)
+    text = re.sub(r"\s*-\s*", "-", text)
+    return text.replace(" ", "")
+
+
+def _contains_no_value_marker(text: str, markers: set[str]) -> bool:
+    """Match skip/no-value markers safely without false positives inside words."""
+    lowered = (text or "").lower()
+    for marker in markers:
+        if " " in marker or "'" in marker:
+            if marker in lowered:
+                return True
+            continue
+        if re.search(rf"\b{re.escape(marker)}\b", lowered):
+            return True
+    return False
 
 
 def _normalize(value: str | None) -> str:
@@ -368,8 +449,26 @@ def _infer_value_for_field(field: str | None, message: str) -> str | None:
         "no",
     }
 
-    if field in optional_field_markers and any(marker in lowered for marker in no_value_markers):
+    if field in optional_field_markers and _contains_no_value_marker(lowered, no_value_markers):
         return "N/A"
+
+    if field == "full_name":
+        # Extract name from sentences like "My name is John", "I'm John", "My full name is John Doe"
+        name_patterns = [
+            r"(?:my\s+full\s+name\s+is|my\s+name\s+is|i'?m\s+called|call\s+me|it'?s|i'?m|name'?s)\s+(.+)",
+            r"^([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})\s*$",  # Simple name format
+        ]
+        for pattern in name_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    extracted_name = match.group(1)
+                except (IndexError, AttributeError):
+                    extracted_name = text
+                extracted_name = _normalize(extracted_name)
+                if len(extracted_name) >= 2:
+                    return extracted_name if _is_valid_field_value(field, extracted_name) else None
+        return text if _is_valid_field_value(field, text) else None
 
     if field == "phone_number":
         digits = _extract_phone_digits(text)
@@ -383,6 +482,13 @@ def _infer_value_for_field(field: str | None, message: str) -> str | None:
         if match:
             candidate = match.group(0)
             return candidate if _is_valid_field_value(field, candidate) else None
+
+        spoken_email = _normalize_spoken_email(text)
+        spoken_match = re.search(r"[^@\s]+@[^@\s]+\.[^@\s]+", spoken_email)
+        if spoken_match:
+            candidate = spoken_match.group(0)
+            return candidate if _is_valid_field_value(field, candidate) else None
+
         return text if _is_valid_field_value(field, text) else None
 
     if field == "complaint_type":
@@ -538,34 +644,12 @@ async def chat_with_assistant(payload: ChatRequest, db: Session = Depends(get_db
             missing_fields=_missing_chat_fields(existing_public_fields),
         )
 
-    # Try Ollama first (in a thread so it doesn't block the event loop).
-    # If Ollama times out or is unavailable, fall back to Gemini.
-    llm_payload = None
-    if ollama_service.is_available():
-        print(f"[chat] Trying Ollama ({ollama_service.model}) ...")
-        try:
-            llm_payload = await asyncio.wait_for(
-                asyncio.to_thread(
-                    ollama_service.generate_complaint_chat_reply,
-                    language,
-                    payload.message,
-                    session.messages,
-                    session.collected_fields or {},
-                ),
-                timeout=4,  # fail fast so UI voice flow does not hang
-            )
-        except asyncio.TimeoutError:
-            print("[chat] Ollama timed out — falling back to Gemini")
-            llm_payload = None
-        except Exception as e:
-            print(f"[chat] Ollama error: {e} — falling back to Gemini")
-            llm_payload = None
-
-    gemini_api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    gemini_api_key = (settings.gemini_api_key or "").strip()
     gemini_enabled = bool(gemini_api_key) and not gemini_api_key.startswith("dev_dummy")
 
-    if llm_payload is None and gemini_enabled:
-        print("[chat] Using Gemini")
+    llm_payload = None
+    if gemini_enabled:
+        print("[chat] Trying Gemini (gemini-2.5-flash preferred) ...")
         try:
             llm_payload = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -577,52 +661,34 @@ async def chat_with_assistant(payload: ChatRequest, db: Session = Depends(get_db
                 ),
                 timeout=10,
             )
+            if isinstance(llm_payload, dict) and llm_payload.get("_provider_error"):
+                print("[chat] Gemini provider error payload — falling back to Ollama")
+                llm_payload = None
         except Exception as gemini_error:
-            print(f"[chat] Gemini error: {gemini_error}")
-            merged_public = dict(existing_public_fields)
-            candidate_field = expected_field
-            if not candidate_field:
-                current_missing = _missing_chat_fields(merged_public)
-                candidate_field = current_missing[0] if current_missing else None
+            print(f"[chat] Gemini error: {gemini_error} — falling back to Ollama")
+            llm_payload = None
 
-            inferred_value = _infer_or_buffer_expected_field(candidate_field, payload.message, meta)
-            if candidate_field and inferred_value:
-                merged_public[candidate_field] = inferred_value
-
-            missing_fields = _missing_chat_fields(merged_public)
-            next_field = missing_fields[0] if missing_fields else None
-            fallback_prompt = _next_field_prompt(next_field, language)
-            if not fallback_prompt and not next_field:
-                fallback_prompt = _translate_safe(
-                    "All required complaint details are captured. You can now upload evidence/ID proof and submit the complaint.",
+    if llm_payload is None and ollama_service.is_available():
+        print(f"[chat] Trying Ollama fallback ({ollama_service.model}) ...")
+        try:
+            llm_payload = await asyncio.wait_for(
+                asyncio.to_thread(
+                    ollama_service.generate_complaint_chat_reply,
                     language,
-                )
-            if not fallback_prompt:
-                fallback_prompt = _translate_safe(
-                    "AI service is temporarily busy. Please continue and share your complaint details.",
-                    language,
-                )
-            fallback_prompt = _append_unknown_hint(fallback_prompt, next_field, language, payload.message)
-
-            meta["expected_field"] = next_field
-            meta["retry_counts"] = retry_counts
-            conversation_service.add_message(db, session, role="assistant", content=fallback_prompt)
-            update_payload = {"__meta__": meta}
-            if candidate_field and inferred_value:
-                update_payload[candidate_field] = inferred_value
-            conversation_service.update_after_chat(db, session, language, "general", update_payload)
-
-            return ChatResponse(
-                session_id=payload.session_id,
-                detected_language=language,
-                response=fallback_prompt,
-                intent="general",
-                next_field=next_field,
-                collected_fields=merged_public,
-                missing_fields=missing_fields,
+                    payload.message,
+                    session.messages,
+                    session.collected_fields or {},
+                ),
+                timeout=6,
             )
+        except asyncio.TimeoutError:
+            print("[chat] Ollama fallback timed out")
+            llm_payload = None
+        except Exception as ollama_error:
+            print(f"[chat] Ollama fallback error: {ollama_error}")
+            llm_payload = None
 
-    if llm_payload is None and not gemini_enabled:
+    if llm_payload is None:
         merged_public = dict(existing_public_fields)
         candidate_field = expected_field
         if not candidate_field:
@@ -689,6 +755,13 @@ async def chat_with_assistant(payload: ChatRequest, db: Session = Depends(get_db
                 continue
             valid_updates[key] = mapped_type
             continue
+
+        if key in {"full_name", "phone_number", "email"}:
+            cleaned = _infer_value_for_field(key, normalized_value)
+            if cleaned:
+                valid_updates[key] = cleaned
+                continue
+
         valid_updates[key] = normalized_value
 
     # If extractor missed the expected field, infer directly from user message.
@@ -741,7 +814,7 @@ async def chat_with_assistant(payload: ChatRequest, db: Session = Depends(get_db
     missing_fields = _missing_chat_fields(merged_public)
 
     # Keep complaint collection deterministic and stable for users:
-    # always follow REQUIRED_COMPLAINT_FIELDS order.
+    # always follow Required field order determined by _chat_flow_fields()
     next_field = missing_fields[0] if missing_fields else None
 
     meta["expected_field"] = next_field

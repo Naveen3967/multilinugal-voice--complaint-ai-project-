@@ -15,7 +15,7 @@ from services.gemini_service import gemini_service
 from services.translation_service import translation_service
 from services.validation_service import validation_service
 from services.enhanced_validation import validation_service as enhanced_validation
-from services.llm_selector import get_active_llm_name, get_llm_client
+from services.llm_selector import get_active_llm_name
 from utils.file_utils import save_upload_file
 
 
@@ -67,100 +67,100 @@ def create_complaint(payload: ComplaintCreateRequest, db: Session = Depends(get_
 
 
 @router.post("/validate-id")
-    def validate_id_proof(
-        full_name: str = Form(""),
-        phone_number: str = Form(""),
-        email: str = Form(""),
-        address: str = Form(""),
-        file: UploadFile = File(...),
-    ):
-        """Validate ID proof and show extracted vs provided details with option to proceed with missing fields."""
-        logger.info(f"🔍 ID proof validation started for {file.filename}")
+def validate_id_proof(
+    full_name: str = Form(""),
+    phone_number: str = Form(""),
+    email: str = Form(""),
+    address: str = Form(""),
+    file: UploadFile = File(...),
+):
+    """Validate ID proof and show extracted vs provided details with option to proceed with missing fields."""
+    logger.info(f"🔍 ID proof validation started for {file.filename}")
 
-        file_path = save_upload_file(file, sub_dir="id_proofs")
-        mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+    file_path = save_upload_file(file, sub_dir="id_proofs")
+    mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
 
-        analysis = {}
-        try:
-            analysis = gemini_service.analyze_id_proof(file_path=file_path, mime_type=mime_type)
-            logger.info(f"✅ ID proof analyzed: extraction_status={analysis.get('extraction_status')}")
-        except Exception as exc:
-            logger.error(f"❌ ID proof analysis error: {exc}", exc_info=True)
-            analysis = {
-                "extraction_status": "ERROR",
-                "missing_fields": ["name", "phone", "email"],
-                "extracted_text": f"[ID Proof: {file.filename}]"
-            }
-
-        # Get extracted values
-        extracted_name = (analysis.get("name") or "").strip()
-        extracted_phone = (analysis.get("phone") or "").strip()
-        extracted_email = (analysis.get("email") or "").strip()
-        extracted_address = (analysis.get("address") or "").strip()
-        missing_fields = analysis.get("missing_fields", [])
-        extraction_status = analysis.get("extraction_status", "UNKNOWN")
-
-        # Normalization functions for comparison
-        def norm_text(v: str) -> str:
-            return " ".join((v or "").strip().lower().split())
-
-        def norm_phone(v: str) -> str:
-            digits = "".join(ch for ch in (v or "") if ch.isdigit())
-            if len(digits) == 12 and digits.startswith("91"):
-                digits = digits[2:]
-            return digits[-10:] if len(digits) >= 10 else digits
-
-        # Detect mismatches
-        mismatches: list[str] = []
-        if full_name.strip() and extracted_name and norm_text(full_name) != norm_text(extracted_name):
-            mismatches.append("full_name")
-        if phone_number.strip() and extracted_phone and norm_phone(phone_number) != norm_phone(extracted_phone):
-            mismatches.append("phone_number")
-        if email.strip() and extracted_email and norm_text(email) != norm_text(extracted_email):
-            mismatches.append("email")
-        if address.strip() and extracted_address and norm_text(address) not in norm_text(extracted_address) and norm_text(extracted_address) not in norm_text(address):
-            mismatches.append("address")
-
-        # Determine what user-provided data we have
-        user_provided = {
-            "name": full_name.strip() if full_name.strip() else None,
-            "phone": phone_number.strip() if phone_number.strip() else None,
-            "email": email.strip() if email.strip() else None,
-            "address": address.strip() if address.strip() else None,
+    analysis = {}
+    try:
+        analysis = gemini_service.analyze_id_proof(file_path=file_path, mime_type=mime_type)
+        logger.info(f"✅ ID proof analyzed: extraction_status={analysis.get('extraction_status')}")
+    except Exception as exc:
+        logger.error(f"❌ ID proof analysis error: {exc}", exc_info=True)
+        analysis = {
+            "extraction_status": "ERROR",
+            "missing_fields": ["name", "phone", "email"],
+            "extracted_text": f"[ID Proof: {file.filename}]"
         }
 
-        # Identify unclear/missing fields that need user input
-        unclear_fields = []
-        for field in missing_fields:
-            if not user_provided.get(field):
-                unclear_fields.append(field)
+    # Get extracted values
+    extracted_name = (analysis.get("name") or "").strip()
+    extracted_phone = (analysis.get("phone") or "").strip()
+    extracted_email = (analysis.get("email") or "").strip()
+    extracted_address = (analysis.get("address") or "").strip()
+    missing_fields = analysis.get("missing_fields", [])
+    extraction_status = analysis.get("extraction_status", "UNKNOWN")
 
-        logger.info(f"📊 ID proof validation summary: extraction_status={extraction_status}, "
-                   f"unclear_fields={unclear_fields}, mismatches={mismatches}")
+    # Normalization functions for comparison
+    def norm_text(v: str) -> str:
+        return " ".join((v or "").strip().lower().split())
 
-        return {
-            "file_path": file_path,
-            "analysis": analysis,
-            "extracted": {
-                "name": extracted_name,
-                "phone": extracted_phone,
-                "email": extracted_email,
-                "address": extracted_address,
-                "document_type": (analysis.get("document_type") or "").strip(),
-                "id_number": (analysis.get("id_number") or "").strip(),
-            },
-            "user_provided": user_provided,
-            "extraction_status": extraction_status,
-            "missing_fields": missing_fields,
-            "unclear_fields": unclear_fields,
-            "mismatch_fields": mismatches,
-            "message": (
-                f"ID proof processed with {len(missing_fields)} unclear fields. "
-                f"You can provide manual details for missing fields and proceed."
-            ) if missing_fields else "ID proof details verified successfully.",
-            "proceed_allowed": True,  # Allow proceeding regardless of extraction quality
-            "proceed_recommended": len(mismatches) == 0 and len(missing_fields) == 0,
-        }
+    def norm_phone(v: str) -> str:
+        digits = "".join(ch for ch in (v or "") if ch.isdigit())
+        if len(digits) == 12 and digits.startswith("91"):
+            digits = digits[2:]
+        return digits[-10:] if len(digits) >= 10 else digits
+
+    # Detect mismatches
+    mismatches: list[str] = []
+    if full_name.strip() and extracted_name and norm_text(full_name) != norm_text(extracted_name):
+        mismatches.append("full_name")
+    if phone_number.strip() and extracted_phone and norm_phone(phone_number) != norm_phone(extracted_phone):
+        mismatches.append("phone_number")
+    if email.strip() and extracted_email and norm_text(email) != norm_text(extracted_email):
+        mismatches.append("email")
+    if address.strip() and extracted_address and norm_text(address) not in norm_text(extracted_address) and norm_text(extracted_address) not in norm_text(address):
+        mismatches.append("address")
+
+    # Determine what user-provided data we have
+    user_provided = {
+        "name": full_name.strip() if full_name.strip() else None,
+        "phone": phone_number.strip() if phone_number.strip() else None,
+        "email": email.strip() if email.strip() else None,
+        "address": address.strip() if address.strip() else None,
+    }
+
+    # Identify unclear/missing fields that need user input
+    unclear_fields = []
+    for field in missing_fields:
+        if not user_provided.get(field):
+            unclear_fields.append(field)
+
+    logger.info(f"📊 ID proof validation summary: extraction_status={extraction_status}, "
+               f"unclear_fields={unclear_fields}, mismatches={mismatches}")
+
+    return {
+        "file_path": file_path,
+        "analysis": analysis,
+        "extracted": {
+            "name": extracted_name,
+            "phone": extracted_phone,
+            "email": extracted_email,
+            "address": extracted_address,
+            "document_type": (analysis.get("document_type") or "").strip(),
+            "id_number": (analysis.get("id_number") or "").strip(),
+        },
+        "user_provided": user_provided,
+        "extraction_status": extraction_status,
+        "missing_fields": missing_fields,
+        "unclear_fields": unclear_fields,
+        "mismatch_fields": mismatches,
+        "message": (
+            f"ID proof processed with {len(missing_fields)} unclear fields. "
+            f"You can provide manual details for missing fields and proceed."
+        ) if missing_fields else "ID proof details verified successfully.",
+        "proceed_allowed": True,  # Allow proceeding regardless of extraction quality
+        "proceed_recommended": len(mismatches) == 0 and len(missing_fields) == 0,
+    }
 
 
 @router.post("/create-with-partial-id", response_model=ComplaintCreateResponse)

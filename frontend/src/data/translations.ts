@@ -72,7 +72,7 @@ export const FULL_TRANSLATIONS: Record<string, Record<string, string>> = {
     failedSubmit: "புகாரை சமர்ப்பிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.", yourComplaintFiled: "உங்கள் புகார் பதிவு செய்யப்பட்டுள்ளது. உங்கள் டிக்கெட் ஐடி "
   },
   te: {
-    language: "భాష", selectLanguage: "దయచేసి మీ భాషను ఎంచుకోండి", languagePrompt: "మీరు ఏ భాషలో మాట్లాడతారు? ఉదాహరణకు: ఇంగ్లీష్, హిందీ, తెలుగు, తమిళ్, కన్నడ, వంటివి", languageSelected: "ఎంపిక చేయబడింది. నేను మీకు ఎలా సహాయం చేయగలను?", greeting: "నేను మీకు ఎలా సహాయం చేయగలను?", thinking: "ఆలోచిస్తోంది...", voiceOn: "వాయిస్ ఆన్", waitingForLanguage: "భాష కోసం కాస్తోంది",
+    language: "భాష", selectLanguage: "దయచేసి మీ భాషను ఎంచుకోండి", languagePrompt: "మీరు ఏ భాషలో మాట్లాడతారు? ఉదాహరణకు: ఇంగ్లీష్, హిందీ, తెలుగు, తమిళ్, కన్నడ, వంటివి", languageSelected: "ఎంపిక అయింది. సైబర్‌గార్డ్‌కు స్వాగతం. నేను మీకు ఎలా సహాయం చేయగలను?", greeting: "సైబర్‌గార్డ్‌కు స్వాగతం. నేను మీకు ఎలా సహాయం చేయగలను?", thinking: "ఆలోచిస్తోంది...", voiceOn: "వాయిస్ ఆన్", waitingForLanguage: "భాష కోసం వేచి ఉంది",
     fileComplaint: "ఫిర్యాదు నమోదు", trackComplaint: "ఫిర్యాదు ట్రాక్", home: "హోమ్", login: "లాగిన్",
     admin: "అడ్మిన్", profile: "ప్రొఫైల్", termsAndConditions: "నియమాలు", logout: "లాగ్ అవుట్",
     fullName: "పూర్తి పేరు", phone: "ఫోన్ నంబర్", email: "ఇమెయిల్", address: "చిరునామా",

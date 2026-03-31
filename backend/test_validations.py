@@ -188,7 +188,7 @@ class TestLLMSelector:
     def test_llm_name(self):
         """Test LLM name detection."""
         name = get_active_llm_name()
-        assert name in ["gemini-2.0-flash", "ollama-llama2", "unknown"], \
+        assert name in ["gemini-2.5-flash", "ollama-llama2", "unknown"], \
             f"Unexpected LLM name: {name}"
 
 

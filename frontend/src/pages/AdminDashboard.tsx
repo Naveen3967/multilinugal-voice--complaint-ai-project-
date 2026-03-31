@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ComponentType } from "react";
 import { getAdminComplaints, updateComplaintStatus, type AdminComplaint } from "@/services/api";
 import { Clock, AlertCircle, CheckCircle, ChevronRight, X, FileText, User, Mail, Phone } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+type IconComponent = ComponentType<{ size?: number; className?: string }>;
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -257,7 +259,7 @@ export default function AdminDashboard() {
   );
 }
 
-function DetailRow({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+function DetailRow({ icon: Icon, label, value }: { icon: IconComponent; label: string; value: string }) {
   return (
     <div className="flex items-start gap-2">
       <Icon size={14} className="text-muted-foreground mt-0.5 shrink-0" />

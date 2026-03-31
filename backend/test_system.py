@@ -106,7 +106,7 @@ def test_llm_selection():
         llm_name = get_active_llm_name()
         print(f"\n✅ Active LLM: {llm_name}")
         
-        if llm_name == "gemini-2.0-flash":
+        if llm_name == "gemini-2.5-flash":
             print(f"   Status: Primary (Gemini) is active")
             print(f"   API Key: {settings.gemini_api_key[:20]}...")
         elif llm_name == "ollama-llama2":

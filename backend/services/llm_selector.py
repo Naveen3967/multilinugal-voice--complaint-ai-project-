@@ -1,9 +1,8 @@
 """
-LLM Service with Gemini primary and Ollama fallback.
-Provides intelligent version selection with automatic fallback.
+LLM service selector with Gemini primary and Ollama fallback.
+Avoids eager provider initialization failures during app startup.
 """
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -20,26 +19,29 @@ def get_llm_service():
     global ACTIVE_LLM
     
     try:
-        from services.gemini_service import gemini_service
         from config import settings
-        
-        # Check if Gemini API is properly configured
-        if settings.gemini_api_key and settings.gemini_api_key != "dev_key_placeholder":
-            ACTIVE_LLM = "gemini-2.0-flash"
-            logger.info("✅ Using Gemini 2.0 Flash (primary)")
+
+        # Check API key before importing Gemini service to avoid eager model probing.
+        gemini_key = (settings.gemini_api_key or "").strip()
+        if gemini_key and gemini_key != "dev_key_placeholder":
+            from services.gemini_service import gemini_service
+
+            ACTIVE_LLM = "gemini-2.5-flash"
+            logger.info("Using Gemini as primary LLM")
             return gemini_service
-        else:
-            logger.warning("⚠️  Gemini API key not configured, falling back to Ollama")
+
+        logger.warning("Gemini key not configured; falling back to Ollama")
     except Exception as e:
-        logger.warning(f"⚠️  Gemini service initialization failed: {e}, falling back to Ollama")
+        logger.warning(f"Gemini initialization failed ({e}); falling back to Ollama")
     
     try:
         from services.ollama_service import ollama_service
+
         ACTIVE_LLM = "ollama-llama2"
-        logger.info("✅ Using Ollama Llama2 (fallback)")
+        logger.info("Using Ollama as fallback LLM")
         return ollama_service
     except Exception as e:
-        logger.error(f"❌ Both Gemini and Ollama failed: {e}")
+        logger.error(f"Both Gemini and Ollama initialization failed: {e}")
         raise RuntimeError("No LLM service available! Configure Gemini API key or Ollama.")
 
 
@@ -52,5 +54,5 @@ def get_active_llm_name() -> str:
     return ACTIVE_LLM or "unknown"
 
 
-# Export the intelligent LLM selector
+# Export selected LLM service
 llm_service = get_llm_service()

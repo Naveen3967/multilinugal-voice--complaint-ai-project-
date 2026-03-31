@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
-import { LANGUAGES, useLanguage } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/useLanguage";
+import { LANGUAGES } from "@/contexts/languages";
 import { useState } from "react";
 import BrandLogo from "@/components/BrandLogo";
 

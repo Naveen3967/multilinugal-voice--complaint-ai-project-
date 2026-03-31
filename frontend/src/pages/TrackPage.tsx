@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLanguage } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/useLanguage";
 import { trackComplaint, type TrackResponse } from "@/services/api";
 import { Search, Clock, CheckCircle, AlertCircle, FileSearch } from "lucide-react";
 

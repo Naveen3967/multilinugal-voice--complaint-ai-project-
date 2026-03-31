@@ -1,10 +1,75 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useLanguage, LANGUAGES } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/useLanguage";
+import { LANGUAGES } from "@/contexts/languages";
 import { useSpeechToText, useTextToSpeech } from "@/hooks/useSpeech";
 import { sendChatMessage, submitComplaint, validateIdProof, resetChatSession, type ChatMessage, type ComplaintFormData } from "@/services/api";
 import { COMPLAINT_TYPES, PLATFORMS } from "@/data/complaintTypes";
 import MicButton from "@/components/MicButton";
 import { Send, Upload, CheckCircle, Volume2 } from "lucide-react";
+
+type LocalRequiredField =
+  | "fullName"
+  | "phone"
+  | "email"
+  | "address"
+  | "incidentType"
+  | "dateTime"
+  | "description"
+  | "platform"
+  | "suspectDetails"
+  | "amountLost"
+  | "transactionId"
+  | "suspectVpa"
+  | "suspectPhone"
+  | "suspectBankAccount";
+
+const FINANCIAL_INCIDENT_TYPES = new Set<string>([
+  "UPI / Payment Fraud",
+  "Credit/Debit Card Fraud",
+  "Internet Banking Fraud",
+  "OTP Fraud",
+  "E-Commerce Fraud / Fake Delivery",
+  "Loan / Insurance Fraud",
+  "SIM Swap Fraud",
+  "Aadhaar Misuse",
+]);
+
+const BASE_REQUIRED_ORDER: LocalRequiredField[] = [
+  "fullName",
+  "phone",
+  "email",
+  "address",
+  "incidentType",
+  "dateTime",
+  "description",
+  "platform",
+  "suspectDetails",
+];
+
+const FINANCIAL_REQUIRED_ORDER: LocalRequiredField[] = [
+  "amountLost",
+  "transactionId",
+  "suspectVpa",
+  "suspectPhone",
+  "suspectBankAccount",
+];
+
+const FIELD_LABEL_KEY: Record<LocalRequiredField, string> = {
+  fullName: "fullName",
+  phone: "phone",
+  email: "email",
+  address: "address",
+  incidentType: "incidentType",
+  dateTime: "dateTime",
+  description: "description",
+  platform: "platform",
+  suspectDetails: "suspectDetails",
+  amountLost: "amountLost",
+  transactionId: "transactionId",
+  suspectVpa: "suspectVpa",
+  suspectPhone: "phone",
+  suspectBankAccount: "suspectDetails",
+};
 
 export default function ComplaintPage() {
   const { t, language, setLanguage, isLanguageSelected } = useLanguage();
@@ -114,7 +179,7 @@ export default function ComplaintPage() {
   const isHelpLikeInput = useCallback((text: string) => {
     const v = text.trim().toLowerCase();
     if (!v) return false;
-    return /(don't know|dont know|not sure|no idea|explain|guide|help me|how to|naaku teliyadu|naku teliyadu|teliyadu)/i.test(v);
+    return /(i\s*don'?t\s*know|idontknow|dont know|not sure|no idea|explain|guide|help me|how to|naaku teliyadu|naku teliyadu|teliyadu)/i.test(v);
   }, []);
 
   const isStepByStepRequest = useCallback((text: string) => {
@@ -132,13 +197,20 @@ export default function ComplaintPage() {
   const isGreetingInput = useCallback((text: string) => {
     const v = text.trim().toLowerCase();
     if (!v) return false;
-    return /\b(hi|hello|hey|hii|helo|good morning|good evening|namaste|నమస్తే|నమస్కారం)\b/.test(v);
+    return /\b(hi|hello|hey|hii|helo|good morning|good evening|namaste|నమస్తే|నమస్కారం|హాయ్|హలో)\b/.test(v);
+  }, []);
+
+  const isGreetingOnlyInput = useCallback((text: string) => {
+    const v = text.trim().toLowerCase();
+    if (!v) return false;
+    // Accept repeated greetings like "hi hi", "హాయ్ హాయ్", etc.
+    return /^(?:\s|hi|hello|hey|hii|helo|good\s*morning|good\s*evening|namaste|నమస్తే|నమస్కారం|హాయ్|హలో|,|\.|!|\?)+$/i.test(v);
   }, []);
 
   const isComplaintStartIntent = useCallback((text: string) => {
     const v = text.trim().toLowerCase();
     if (!v) return false;
-    return /(complaint\s*(cheyali|cheyyali|namodu|register|file)|file\s*(a\s*)?complaint|register\s*(a\s*)?complaint|i want to file complaint|నాకు\s*ఫిర్యాదు\s*(చేయాలి|నమోదు)|ఫిర్యాదు\s*(చేయాలి|నమోదు)|ದೂರು\s*(ನೀಡಬೇಕು|ನೋಂದಣಿ)|புகார்\s*(செய்ய|பதிவு)|എനിക്ക്\s*പരാതി\s*നൽകണം)/i.test(v);
+    return /(complaint\s*(cheyali|cheyyali|namodu|register|file)|file\s*(a\s*)?complaint|register\s*(a\s*)?complaint|i want to (file|fight) complaint|నాకు\s*ఫిర్యాదు\s*(చేయాలి|నమోదు)|ఫిర్యాదు\s*(చేయాలి|నమోదు)|ದೂರು\s*(ನೀಡಬೇಕು|ನೋಂದಣಿ)|புகார்\s*(செய்ய|பதிவு)|എനിക്ക്\s*പരാതി\s*നൽകണം)/i.test(v);
   }, []);
 
   const isExplainQuestion = useCallback((text: string) => {
@@ -150,7 +222,7 @@ export default function ComplaintPage() {
   const isNoEmailIntent = useCallback((text: string) => {
     const v = text.trim().toLowerCase();
     if (!v) return false;
-    return /(i\s*do\s*not\s*have\s*(an\s*)?email|i\s*don't\s*have\s*(an\s*)?email|i\s*dont\s*have\s*(an\s*)?email|no\s*email|without\s*email|mail\s*id\s*ledu|email\s*ledu|email\s*nahi\s*hai|mail\s*nahi\s*hai|skip\s*email)/i.test(v);
+    return /(i\s*do\s*not\s*have\s*(an\s*)?email|i\s*don't\s*have\s*(an\s*)?email|i\s*dont\s*have\s*(an\s*)?email|no\s*email|without\s*email|mail\s*id\s*ledu|email\s*ledu|email\s*nahi\s*hai|mail\s*nahi\s*hai|skip\s*email|not\s*applicable|not\s*there|no\s*mail)/i.test(v);
   }, []);
 
   const isIdProofAutofillRequest = useCallback((text: string) => {
@@ -159,73 +231,10 @@ export default function ComplaintPage() {
     return /(uploaded.*(id|proof)|id proof.*(uploaded|upload)|based on (id|proof)|extract.*id|auto\s*fill.*id|fill.*from.*proof)/i.test(v);
   }, []);
 
-  type LocalRequiredField =
-    | "fullName"
-    | "phone"
-    | "email"
-    | "address"
-    | "incidentType"
-    | "dateTime"
-    | "description"
-    | "platform"
-    | "suspectDetails"
-    | "amountLost"
-    | "transactionId"
-    | "suspectVpa"
-    | "suspectPhone"
-    | "suspectBankAccount";
-
-  const financialIncidentTypes = new Set<string>([
-    "UPI / Payment Fraud",
-    "Credit/Debit Card Fraud",
-    "Internet Banking Fraud",
-    "OTP Fraud",
-    "E-Commerce Fraud / Fake Delivery",
-    "Loan / Insurance Fraud",
-    "SIM Swap Fraud",
-    "Aadhaar Misuse",
-  ]);
-
-  const baseRequiredOrder: LocalRequiredField[] = [
-    "fullName",
-    "phone",
-    "email",
-    "address",
-    "incidentType",
-    "dateTime",
-    "description",
-    "platform",
-    "suspectDetails",
-  ];
-
-  const financialRequiredOrder: LocalRequiredField[] = [
-    "amountLost",
-    "transactionId",
-    "suspectVpa",
-    "suspectPhone",
-    "suspectBankAccount",
-  ];
-  const fieldLabelKey: Record<LocalRequiredField, string> = {
-    fullName: "fullName",
-    phone: "phone",
-    email: "email",
-    address: "address",
-    incidentType: "incidentType",
-    dateTime: "dateTime",
-    description: "description",
-    platform: "platform",
-    suspectDetails: "suspectDetails",
-    amountLost: "amountLost",
-    transactionId: "transactionId",
-    suspectVpa: "suspectVpa",
-    suspectPhone: "phone",
-    suspectBankAccount: "suspectDetails",
-  };
-
   const localRequiredOrder = useCallback((): LocalRequiredField[] => {
-    const required = [...baseRequiredOrder];
-    if (financialIncidentTypes.has((form.incidentType || "").trim())) {
-      required.push(...financialRequiredOrder);
+    const required = [...BASE_REQUIRED_ORDER];
+    if (FINANCIAL_INCIDENT_TYPES.has((form.incidentType || "").trim())) {
+      required.push(...FINANCIAL_REQUIRED_ORDER);
     }
     return required;
   }, [form.incidentType]);
@@ -236,7 +245,7 @@ export default function ComplaintPage() {
       if (!value) {
         return key;
       }
-      if (["email", "address", "dateTime", "platform", "amountLost", "transactionId", "suspectDetails", "suspectVpa", "suspectPhone", "suspectBankAccount"].includes(key) && /^(n\/a|na|none|skip|unknown)$/i.test(value)) {
+      if (["address", "dateTime", "platform", "amountLost", "transactionId", "suspectDetails", "suspectVpa", "suspectPhone", "suspectBankAccount"].includes(key) && /^(n\/a|na|none|skip|unknown)$/i.test(value)) {
         continue;
       }
       if (key === "phone") {
@@ -250,15 +259,15 @@ export default function ComplaintPage() {
   }, [form, localRequiredOrder]);
 
   const nextMissingFieldForForm = useCallback((candidateForm: ComplaintFormData): LocalRequiredField | null => {
-    const required = [...baseRequiredOrder];
-    if (financialIncidentTypes.has((candidateForm.incidentType || "").trim())) {
-      required.push(...financialRequiredOrder);
+    const required = [...BASE_REQUIRED_ORDER];
+    if (FINANCIAL_INCIDENT_TYPES.has((candidateForm.incidentType || "").trim())) {
+      required.push(...FINANCIAL_REQUIRED_ORDER);
     }
 
     for (const key of required) {
       const value = String(candidateForm[key] || "").trim();
       if (!value) return key;
-      if (["email", "address", "dateTime", "platform", "amountLost", "transactionId", "suspectDetails", "suspectVpa", "suspectPhone", "suspectBankAccount"].includes(key) && /^(n\/a|na|none|skip|unknown)$/i.test(value)) {
+      if (["address", "dateTime", "platform", "amountLost", "transactionId", "suspectDetails", "suspectVpa", "suspectPhone", "suspectBankAccount"].includes(key) && /^(n\/a|na|none|skip|unknown)$/i.test(value)) {
         continue;
       }
       if (key === "phone") {
@@ -270,14 +279,14 @@ export default function ComplaintPage() {
     }
 
     return null;
-  }, [baseRequiredOrder, financialIncidentTypes, financialRequiredOrder]);
+  }, []);
 
   const localizedPromptForField = useCallback((field: LocalRequiredField): string => {
     if (language.code === "en") {
       const enPrompts: Record<LocalRequiredField, string> = {
         fullName: "Please share your full name.",
         phone: "Please share your 10-digit phone number.",
-        email: "Please share your email address (optional but recommended).",
+        email: "Please share your email address. Email is mandatory to receive updates.",
         address: "Please share your current address (city and state are enough).",
         incidentType: "Please tell me the type of incident.",
         dateTime: "Please share the date and time of the incident (approximate is okay).",
@@ -294,7 +303,7 @@ export default function ComplaintPage() {
     }
 
     // Universal non-English fallback using translated field labels.
-    return `${t(fieldLabelKey[field])}: ${t("speakNow")}`;
+    return `${t(FIELD_LABEL_KEY[field])}: ${t("speakNow")}`;
   }, [language.code, t]);
 
   const localizedDetailedHintForField = useCallback((field: LocalRequiredField): string => {
@@ -319,14 +328,14 @@ export default function ComplaintPage() {
     }
 
     if (language.code !== "en") {
-      const label = t(fieldLabelKey[field]);
+      const label = t(FIELD_LABEL_KEY[field]);
       return `${label}: ${t("speakNow")}`;
     }
 
     const enHints: Record<LocalRequiredField, string> = {
       fullName: "Share legal full name as in ID proof. Example: Ravi Kumar Reddy.",
       phone: "Share your active 10-digit number. Example: 9876543210.",
-      email: "Email is optional. Use format name@example.com, or type N/A if you do not have one.",
+      email: "Email is mandatory. Use format name@example.com. Example: naveen.kumar@gmail.com.",
       address: "Address is optional. City and state are enough. Example: Bengaluru, Karnataka.",
       incidentType: "Example: UPI Fraud, Phishing, Social Media Hacking, Card Fraud.",
       dateTime: "Exact time not required. Approximate is okay. Example: 25/03/2026 around 8 PM.",
@@ -341,6 +350,20 @@ export default function ComplaintPage() {
     };
     return enHints[field];
   }, [language.code, t]);
+
+  const buildStepByStepGuidance = useCallback((field: LocalRequiredField): string => {
+    const base = `${localizedPromptForField(field)}\n\n${localizedDetailedHintForField(field)}`;
+    if (field === "email") {
+      if (language.code === "te") {
+        return `${base}\n\nఇమెయిల్ తప్పనిసరి. ఫిర్యాదు అప్‌డేట్లు పంపడానికి సరైన ఇమెయిల్ ఇవ్వండి.`;
+      }
+      return `${base}\n\nEmail is mandatory to receive complaint updates and notifications.`;
+    }
+    if (language.code === "te") {
+      return `${base}\n\nతెలియకపోతే సుమారు వివరాలు చెప్పండి. అవసరమైతే N/A ఇవ్వండి.`;
+    }
+    return `${base}\n\nIf you do not know, share approximate details or enter N/A where applicable.`;
+  }, [language.code, localizedDetailedHintForField, localizedPromptForField]);
 
   const detectFieldFromText = useCallback((text: string): LocalRequiredField | null => {
     const v = text.toLowerCase();
@@ -399,11 +422,139 @@ export default function ComplaintPage() {
     return digits;
   }, []);
 
+  const parseSpokenDigits = useCallback((raw: string): string => {
+    const text = (raw || "").toLowerCase();
+    if (!text.trim()) return "";
+
+    const tokenToDigit: Record<string, string> = {
+      zero: "0", oh: "0", o: "0",
+      one: "1", won: "1",
+      two: "2", to: "2", too: "2",
+      three: "3", tree: "3",
+      four: "4", for: "4", fore: "4",
+      five: "5",
+      six: "6",
+      seven: "7",
+      eight: "8", ate: "8",
+      nine: "9",
+    };
+
+    const normalized = text
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\bdouble\b/g, " double ")
+      .replace(/\btriple\b/g, " triple ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const tokens = normalized.split(" ").filter(Boolean);
+    let out = "";
+
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+
+      if (token === "double" || token === "triple") {
+        const next = tokens[i + 1];
+        const digit = next ? (tokenToDigit[next] || (next.length === 1 && /\d/.test(next) ? next : "")) : "";
+        if (digit) {
+          out += token === "double" ? digit.repeat(2) : digit.repeat(3);
+          i += 1;
+        }
+        continue;
+      }
+
+      if (/^\d+$/.test(token)) {
+        out += token;
+        continue;
+      }
+
+      if (tokenToDigit[token]) {
+        out += tokenToDigit[token];
+      }
+    }
+
+    return out;
+  }, []);
+
   const normalizeEmailForSubmit = useCallback((raw: string): string => {
-    const text = (raw || "").trim().replace(/\s+/g, "");
-    if (!text) return "N/A";
+    const text = (raw || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s*(at\s*the\s*rate|at\s*rate|at\s*the\s*red|at\s*red|attherate|atthered|when\s*are\s*the\s*rate|where\s*are\s*the\s*rate|ఎట్\s*ది\s*రేట్|అట్\s*ది\s*రేట్|ఎట్\s*రేట్|అట్\s*రేట్|అట్|ఎట్)\s*/gi, "@")
+      .replace(/\s*(dot|డాట్|పాయింట్|పాయింట్\s*సింబల్)\s*/gi, ".")
+      .replace(/\b(gmail|yahoo|outlook|hotmail)\s+com\b/gi, "$1.com")
+      .replace(/\s+/g, "")
+      .replace(/^mailto:/, "");
+    if (!text) return "";
     return text;
   }, []);
+
+  const deriveLocalPartFromName = useCallback((name: string): string => {
+    const cleaned = (name || "")
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(".");
+    return cleaned;
+  }, []);
+
+  const extractEmailFromSpeech = useCallback((raw: string, fallbackName: string): string => {
+    const normalized = normalizeEmailForSubmit(raw);
+    const direct = (normalized.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0]
+      || ((raw || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0];
+    if (direct) return direct.toLowerCase();
+
+    if (normalized.includes("@") && normalized.includes(".")) {
+      return normalized;
+    }
+
+    // Domain-only speech like "gmail.com" -> use name-derived local part when available.
+    const domainOnly = normalized.match(/^(?:@)?([a-z0-9.-]+\.[a-z]{2,})$/i);
+    if (domainOnly?.[1]) {
+      const local = deriveLocalPartFromName(fallbackName);
+      if (local) {
+        return `${local}@${domainOnly[1].toLowerCase()}`;
+      }
+    }
+
+    // Handle forms like "naveen gmail.com" without explicit @
+    const split = normalized.match(/^([a-z0-9._-]{2,})\s*([a-z0-9.-]+\.[a-z]{2,})$/i);
+    if (split?.[1] && split?.[2]) {
+      return `${split[1].toLowerCase()}@${split[2].toLowerCase()}`;
+    }
+
+    return "";
+  }, [deriveLocalPartFromName, normalizeEmailForSubmit]);
+
+  const sanitizeFullName = useCallback((raw: string): string => {
+    const value = (raw || "").trim();
+    if (!value) return "";
+    if (isGreetingOnlyInput(value)) return "";
+
+    const lowered = value.toLowerCase();
+    if (/(complaint|file\s*complaint|register\s*complaint|fight\s*complaint|help|issue|problem|submit|track|status)/i.test(lowered)) {
+      return "";
+    }
+
+    const normalized = value
+      .replace(/^(my\s*name\s*is|i\s*am|నేను|నా\s*పేరు|పేరు)\s*/i, "")
+      .replace(/[^A-Za-z\u0C00-\u0C7F\s.'-]/g, "")
+      .trim();
+
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    if (parts.length < 1) return "";
+    // Accept single-name users while still rejecting tiny/noisy captures.
+    return normalized.length >= 2 ? normalized : "";
+  }, [isGreetingOnlyInput]);
+
+  const buildWelcomeGreeting = useCallback((): string => {
+    if (language.code === "te") {
+      return "హాయ్! సైబర్‌గార్డ్‌కు స్వాగతం. నేను మీ ఫిర్యాదు నమోదు చేయడంలో సహాయం చేస్తాను.";
+    }
+    return "Hello! Welcome to CyberGuard. I will help you file your complaint.";
+  }, [language.code]);
 
   const extractFallbackEmail = useCallback((text: string): string => {
     const match = (text || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
@@ -421,7 +572,7 @@ export default function ComplaintPage() {
     const raw = (text || "").trim();
     if (!raw) return "";
 
-    const labeled = raw.match(/(?:name|holder\s*name|full\s*name)\s*[:\-]\s*([A-Za-z][A-Za-z\s]{2,60})/i);
+    const labeled = raw.match(/(?:name|holder\s*name|full\s*name)\s*[:-]\s*([A-Za-z][A-Za-z\s]{2,60})/i);
     if (labeled?.[1]) return labeled[1].trim();
 
     const firstLine = raw.split(/\r?\n/).map((x) => x.trim()).find((x) => /^[A-Za-z][A-Za-z\s]{2,60}$/.test(x));
@@ -431,7 +582,7 @@ export default function ComplaintPage() {
   const extractFallbackAddress = useCallback((text: string): string => {
     const raw = (text || "").trim();
     if (!raw) return "";
-    const labeled = raw.match(/(?:address|addr)\s*[:\-]\s*([^\n]{8,120})/i);
+    const labeled = raw.match(/(?:address|addr)\s*[:-]\s*([^\n]{8,120})/i);
     if (labeled?.[1]) return labeled[1].trim();
     return "";
   }, []);
@@ -478,7 +629,7 @@ export default function ComplaintPage() {
         ...form,
         fullName: form.fullName || inferredName || form.fullName,
         phone: form.phone || inferredPhone || form.phone,
-        email: (!form.email || form.email === "N/A") && inferredEmail ? inferredEmail : form.email,
+        email: !form.email && inferredEmail ? inferredEmail : form.email,
         address: (!form.address || form.address === "N/A") && inferredAddress ? inferredAddress : form.address,
       };
 
@@ -494,7 +645,7 @@ export default function ComplaintPage() {
       const filledFields: string[] = [];
       if (!form.fullName && mergedForm.fullName) filledFields.push("full name");
       if (!form.phone && mergedForm.phone) filledFields.push("phone");
-      if ((!form.email || form.email === "N/A") && mergedForm.email && mergedForm.email !== "N/A") filledFields.push("email");
+      if (!form.email && mergedForm.email) filledFields.push("email");
       if ((!form.address || form.address === "N/A") && mergedForm.address && mergedForm.address !== "N/A") filledFields.push("address");
 
       const intro = filledFields.length > 0
@@ -502,10 +653,10 @@ export default function ComplaintPage() {
             ? `ID ప్రూఫ్ నుంచి ఆటో-ఫిల్ చేసిన వివరాలు: ${filledFields.join(", ")}.`
             : `I auto-filled these details from your ID proof: ${filledFields.join(", ")}.`)
         : (language.code === "te"
-            ? "ID ప్రూఫ్‌లోనుంచి పేరు/ఫోన్/ఈమెయిల్ స్పష్టంగా దొరకలేదు. దయచేసి మిగిలిన వివరాలు చెప్పండి."
-            : "I could not clearly extract name/phone/email from the ID proof. Please share the missing details.");
+            ? "ID ప్రూఫ్ టెక్స్ట్ స్పష్టంగా చదవలేకపోయాను. పర్లేదు, నేను దశలవారీగా మిగిలిన వివరాలు అడుగుతాను."
+            : "The ID proof text is unclear. No problem, I will continue step by step and ask the missing details.");
       const nextPrompt = nextField
-        ? `${localizedPromptForField(nextField)}\n\n${localizedDetailedHintForField(nextField)}`
+        ? buildStepByStepGuidance(nextField)
         : language.code === "te"
           ? "అన్ని అవసరమైన వివరాలు వచ్చాయి. ఇప్పుడు సాక్ష్యాలు జోడించి ఫిర్యాదు సమర్పించండి."
           : "All required complaint details are captured. You can now upload evidence and submit the complaint.";
@@ -535,7 +686,7 @@ export default function ComplaintPage() {
     } catch {
       setIdProofValidationNote("ID proof analysis failed. You can still continue and submit.");
     }
-  }, [form, language.code, normalizePhoneForSubmit, normalizeEmailForSubmit, nextMissingFieldForForm, localizedPromptForField, localizedDetailedHintForField, speak, language.speechCode]);
+  }, [form, language.code, normalizePhoneForSubmit, normalizeEmailForSubmit, nextMissingFieldForForm, localizedPromptForField, localizedDetailedHintForField, buildStepByStepGuidance, speak, language.speechCode, extractFallbackName, extractFallbackPhone, extractFallbackEmail, extractFallbackAddress]);
 
   const localizeBackendResponse = useCallback((raw: string, userText: string): string => {
     const text = (raw || "").trim();
@@ -544,6 +695,7 @@ export default function ComplaintPage() {
     const isGenericFallback = /please continue and share your complaint details clearly\.?/i.test(text)
       || /ai service is temporarily busy/i.test(text);
     const explicitEnglishFieldPrompt = /please share your full name|please share your 10-digit phone number|please share your email address|please share your complete address|please tell me the type of incident|please share the date and time of the incident|please explain what happened in detail|please share the platform where this happened/i.test(text);
+    const isGuidanceRequest = isHelpLikeInput(userText) || isStepByStepRequest(userText) || isExplainQuestion(userText);
 
     if (!isGenericFallback && !explicitEnglishFieldPrompt) {
       return text;
@@ -556,12 +708,11 @@ export default function ComplaintPage() {
         : "All required complaint details are captured. You can now add evidence and submit the complaint.";
     }
 
-    const prompt = localizedPromptForField(nextField);
-    if (isHelpLikeInput(userText)) {
-      return `${prompt}\n\n${localizedDetailedHintForField(nextField)}`;
+    if (isGuidanceRequest) {
+      return buildStepByStepGuidance(nextField);
     }
-    return prompt;
-  }, [isHelpLikeInput, language.code, localizedDetailedHintForField, localizedPromptForField, nextMissingLocalField]);
+    return localizedPromptForField(nextField);
+  }, [isHelpLikeInput, isStepByStepRequest, isExplainQuestion, language.code, localizedPromptForField, nextMissingLocalField, buildStepByStepGuidance]);
 
   useEffect(() => {
     setForm((prev) => (prev.language === language.code ? prev : { ...prev, language: language.code }));
@@ -584,8 +735,8 @@ export default function ComplaintPage() {
     && form.suspectDetails
   );
   const phoneLooksValid = /^[6-9]\d{9}$/.test(normalizedPhonePreview);
-  const emailLooksValid = emailPreview === "N/A" || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailPreview);
-  const needsFinancialFields = financialIncidentTypes.has((form.incidentType || "").trim());
+  const emailLooksValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailPreview);
+  const needsFinancialFields = FINANCIAL_INCIDENT_TYPES.has((form.incidentType || "").trim());
   const hasFinancialFields = !needsFinancialFields || Boolean(
     String(form.amountLost || "").trim()
     && String(form.transactionId || "").trim()
@@ -613,8 +764,8 @@ export default function ComplaintPage() {
     interimText,
     startListening,
     stopListening,
-    pauseListening,
     resumeListening,
+    primeMicrophonePermission,
   } = useSpeechToText(onSilence);
 
 
@@ -628,11 +779,15 @@ export default function ComplaintPage() {
 
   const applyCollectedFields = useCallback((fields?: Record<string, string>) => {
     if (!fields || Object.keys(fields).length === 0) return;
+
+    const cleanedName = sanitizeFullName(fields.full_name || "");
+    const cleanedEmail = normalizeEmailForSubmit(fields.email || "");
+
     setForm((prev) => ({
       ...prev,
-      fullName: fields.full_name || prev.fullName,
+      fullName: cleanedName || prev.fullName,
       phone: fields.phone_number || prev.phone,
-      email: fields.email || prev.email,
+      email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanedEmail) ? cleanedEmail : prev.email,
       address: fields.address || prev.address,
       incidentType: fields.complaint_type || prev.incidentType,
       dateTime: fields.date_time || prev.dateTime,
@@ -645,7 +800,7 @@ export default function ComplaintPage() {
       suspectPhone: fields.suspect_phone || prev.suspectPhone,
       suspectBankAccount: fields.suspect_bank_account || prev.suspectBankAccount,
     }));
-  }, []);
+  }, [normalizeEmailForSubmit, sanitizeFullName]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitError("");
@@ -670,8 +825,8 @@ export default function ComplaintPage() {
       if (!/^[6-9]\d{9}$/.test(normalizedPayload.phone)) {
         throw new Error("Please enter a valid 10-digit mobile number.");
       }
-      if (normalizedPayload.email !== "N/A" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedPayload.email)) {
-        throw new Error("Please enter a valid email address or N/A.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedPayload.email)) {
+        throw new Error("Please enter a valid email address. Email is mandatory for complaint updates.");
       }
 
       if (idFiles.length > 0) {
@@ -679,7 +834,7 @@ export default function ComplaintPage() {
         const analysis = validation.analysis || {};
 
         if (!normalizedPayload.fullName && analysis.name) normalizedPayload.fullName = analysis.name;
-        if ((!normalizedPayload.email || normalizedPayload.email === "N/A") && analysis.email) normalizedPayload.email = analysis.email;
+        if (!normalizedPayload.email && analysis.email) normalizedPayload.email = analysis.email;
         if ((!normalizedPayload.address || normalizedPayload.address === "N/A") && analysis.address) normalizedPayload.address = analysis.address;
         if ((!normalizedPayload.phone || normalizedPayload.phone.length < 10) && analysis.phone) {
           normalizedPayload.phone = normalizePhoneForSubmit(analysis.phone);
@@ -714,19 +869,29 @@ export default function ComplaintPage() {
   }, [form, evidenceFiles, idFiles, language.code, language.speechCode, speak, t, normalizePhoneForSubmit, normalizeEmailForSubmit]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || chatLoading) return;
+    const trimmed = text.trim();
+    const resumeIfVoice = () => {
+      if (voiceActiveRef.current) resumeListeningRef.current?.();
+    };
+
+    if (!trimmed) {
+      resumeIfVoice();
+      return;
+    }
+
+    if (chatLoading) {
+      // If another request is in-flight, keep voice mode alive instead of getting stuck.
+      setTimeout(resumeIfVoice, 250);
+      return;
+    }
 
     let effectiveLanguage = maybeAutoSwitchLanguage(text);
     const currentMessages = messagesRef.current;
-    const userMsg: ChatMessage = { role: "user", content: text.trim() };
+    const userMsg: ChatMessage = { role: "user", content: trimmed };
     const newMessages = [...currentMessages, userMsg];
     setMessages(newMessages);
     messagesRef.current = newMessages;
     setInputText("");
-
-    const resumeIfVoice = () => {
-      if (voiceActiveRef.current) resumeListeningRef.current?.();
-    };
 
     // Explicit language change command should work at any time, not only when current language is English.
     const requestedLanguage = findLanguageFromSpeech(text);
@@ -788,18 +953,85 @@ export default function ComplaintPage() {
       return;
     }
 
-    if (isGreetingInput(text) && messagesRef.current.length <= 2) {
-      const greetingReply = language.code === "en"
-        ? "Hello! What can I do for you today?"
-        : t("greeting");
+    if (isGreetingOnlyInput(text) || (isGreetingInput(text) && !isComplaintStartIntent(text))) {
+      const greetingReply = buildWelcomeGreeting();
       setMessages((prev) => [...prev, { role: "assistant", content: greetingReply }]);
       speak(greetingReply, effectiveLanguage.speechCode, resumeIfVoice);
       return;
     }
 
+    // Deterministic capture for critical fields so greetings/noise are not saved as name.
+    const currentlyMissing = nextMissingLocalField();
+    if (currentlyMissing === "fullName") {
+      const cleanedName = sanitizeFullName(text);
+      if (cleanedName) {
+        const updatedForm = { ...form, fullName: cleanedName };
+        setForm((prev) => ({ ...prev, fullName: cleanedName }));
+        const nextField = nextMissingFieldForForm(updatedForm);
+        if (nextField) {
+          const prompt = localizedPromptForField(nextField);
+          setMessages((prev) => [...prev, { role: "assistant", content: prompt }]);
+          speak(prompt, effectiveLanguage.speechCode, resumeIfVoice);
+          return;
+        }
+      }
+
+      const retryNamePrompt = language.code === "te"
+        ? "దయచేసి మీ పూర్తి పేరు చెప్పండి. ఉదాహరణ: నవీన్ కుమార్ రెడ్డి"
+        : "Please tell your full name clearly. Example: Naveen Kumar Reddy.";
+      setMessages((prev) => [...prev, { role: "assistant", content: retryNamePrompt }]);
+      speak(retryNamePrompt, effectiveLanguage.speechCode, resumeIfVoice);
+      return;
+    }
+
+    if (currentlyMissing === "phone") {
+      const spokenDigits = parseSpokenDigits(text);
+      const phone = normalizePhoneForSubmit(extractFallbackPhone(text) || spokenDigits || text);
+      if (/^[6-9]\d{9}$/.test(phone)) {
+        const updatedForm = { ...form, phone };
+        setForm((prev) => ({ ...prev, phone }));
+        const nextField = nextMissingFieldForForm(updatedForm);
+        if (nextField) {
+          const prompt = localizedPromptForField(nextField);
+          setMessages((prev) => [...prev, { role: "assistant", content: prompt }]);
+          speak(prompt, effectiveLanguage.speechCode, resumeIfVoice);
+          return;
+        }
+      }
+
+      const retryPhonePrompt = language.code === "te"
+        ? "దయచేసి 10 అంకెల ఫోన్ నంబర్ చెప్పండి. ఉదాహరణ: 9 8 7 6 5 4 3 2 1 0"
+        : "Please say a valid 10-digit phone number digit by digit. Example: 9 8 7 6 5 4 3 2 1 0";
+      setMessages((prev) => [...prev, { role: "assistant", content: retryPhonePrompt }]);
+      speak(retryPhonePrompt, effectiveLanguage.speechCode, resumeIfVoice);
+      return;
+    }
+
+    if (currentlyMissing === "email") {
+      const email = extractEmailFromSpeech(text, form.fullName);
+      if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        const updatedForm = { ...form, email };
+        setForm((prev) => ({ ...prev, email }));
+        const nextField = nextMissingFieldForForm(updatedForm);
+        if (nextField) {
+          const prompt = localizedPromptForField(nextField);
+          setMessages((prev) => [...prev, { role: "assistant", content: prompt }]);
+          speak(prompt, effectiveLanguage.speechCode, resumeIfVoice);
+          return;
+        }
+      }
+
+      const retryEmailPrompt = language.code === "te"
+        ? "ఇమెయిల్ తప్పనిసరి. ఇలా చెప్పండి: పేరు ఎట్ ది రేట్ డొమైన్ డాట్ కామ్. ఉదాహరణ: naveen ఎట్ ది రేట్ gmail డాట్ com. కేవలం gmail.com కాదు."
+        : "Email is mandatory. Say it as: name at the rate domain dot com. Example: naveen at the rate gmail dot com. Not only gmail.com.";
+      setMessages((prev) => [...prev, { role: "assistant", content: retryEmailPrompt }]);
+      speak(retryEmailPrompt, effectiveLanguage.speechCode, resumeIfVoice);
+      return;
+    }
+
     if (isComplaintStartIntent(text)) {
       const nextField = nextMissingLocalField() || "fullName";
-      const guidance = `${localizedPromptForField(nextField)}\n\n${localizedDetailedHintForField(nextField)}`;
+      const guidance = buildStepByStepGuidance(nextField);
       setMessages((prev) => [...prev, { role: "assistant", content: guidance }]);
       speak(guidance, effectiveLanguage.speechCode, resumeIfVoice);
       return;
@@ -824,13 +1056,13 @@ export default function ComplaintPage() {
       return;
     }
 
-    // Fast-path for optional email skip so user is not stuck repeating email question.
+    // Email is mandatory; do not allow skip intents.
     if (nextMissingLocalField() === "email" && isNoEmailIntent(text)) {
-      setForm((prev) => ({ ...prev, email: "N/A" }));
-      const nextField: LocalRequiredField = "address";
-      const guidance = `${localizedPromptForField(nextField)}\n\n${localizedDetailedHintForField(nextField)}`;
-      setMessages((prev) => [...prev, { role: "assistant", content: guidance }]);
-      speak(guidance, effectiveLanguage.speechCode, resumeIfVoice);
+      const mandatoryEmailMsg = language.code === "te"
+        ? "ఇమెయిల్ తప్పనిసరి. ఫిర్యాదు అప్‌డేట్లు పంపడానికి మీ సరైన ఇమెయిల్ ఇవ్వండి. ఉదాహరణ: naveen@gmail.com"
+        : "Email is mandatory to receive complaint updates. Please provide a valid email. Example: naveen@gmail.com";
+      setMessages((prev) => [...prev, { role: "assistant", content: mandatoryEmailMsg }]);
+      speak(mandatoryEmailMsg, effectiveLanguage.speechCode, resumeIfVoice);
       return;
     }
 
@@ -846,7 +1078,7 @@ export default function ComplaintPage() {
       const askedField = detectFieldFromText(text);
       const nextField = askedField || nextMissingLocalField();
       const guidance = nextField
-        ? `${localizedPromptForField(nextField)}\n\n${localizedDetailedHintForField(nextField)}\n\nIf you do not know, share approximate details or enter N/A where not applicable. You can answer in your own language.`
+        ? buildStepByStepGuidance(nextField)
         : language.code === "te"
         ? "మీ ప్రధాన వివరాలు వచ్చాయి. ఇప్పుడు మిగిలిన ఐచ్చిక వివరాలు లేదా సాక్ష్యాలు జోడించి ఫిర్యాదు సమర్పించండి."
         : "Your main details are complete. Add optional details/evidence and submit the complaint.";
@@ -861,16 +1093,48 @@ export default function ComplaintPage() {
     try {
       const apiRes = await sendChatMessage(newMessages, effectiveLanguage.name);
       const backendText = apiRes.response || localizedPromptForField(nextMissingLocalField() || "fullName");
-      const localizedReply = localizeBackendResponse(backendText, text);
+      let localizedReply = localizeBackendResponse(backendText, text);
+
+      const safeCollectedFields = { ...(apiRes.collected_fields || {}) };
+      if (safeCollectedFields.full_name && isGreetingOnlyInput(String(safeCollectedFields.full_name))) {
+        delete safeCollectedFields.full_name;
+      }
+
+      const mergedForm: ComplaintFormData = {
+        ...form,
+        fullName: safeCollectedFields.full_name || form.fullName,
+        phone: safeCollectedFields.phone_number || form.phone,
+        email: safeCollectedFields.email || form.email,
+        address: safeCollectedFields.address || form.address,
+        incidentType: safeCollectedFields.complaint_type || form.incidentType,
+        dateTime: safeCollectedFields.date_time || form.dateTime,
+        description: safeCollectedFields.description || form.description,
+        amountLost: safeCollectedFields.amount_lost || form.amountLost,
+        transactionId: safeCollectedFields.transaction_id || form.transactionId,
+        suspectDetails: safeCollectedFields.suspect_details || form.suspectDetails,
+        platform: safeCollectedFields.platform || form.platform,
+        suspectVpa: safeCollectedFields.suspect_vpa || form.suspectVpa,
+        suspectPhone: safeCollectedFields.suspect_phone || form.suspectPhone,
+        suspectBankAccount: safeCollectedFields.suspect_bank_account || form.suspectBankAccount,
+      };
+
+      // For non-English guided voice filing, keep prompts deterministic and local.
+      if (language.code !== "en") {
+        const upcomingField = nextMissingFieldForForm(mergedForm);
+        if (upcomingField) {
+          localizedReply = localizedPromptForField(upcomingField);
+        }
+      }
+
       const assistantMsg: ChatMessage = { role: "assistant", content: localizedReply };
       setMessages((prev) => [...prev, assistantMsg]);
       messagesRef.current = [...newMessages, assistantMsg];
-      applyCollectedFields(apiRes.collected_fields);
+      applyCollectedFields(safeCollectedFields);
       speak(localizedReply, effectiveLanguage.speechCode, resumeIfVoice);
     } catch {
       const nextField = nextMissingLocalField();
       const fallback = nextField
-        ? `${localizedPromptForField(nextField)}\n\n${localizedDetailedHintForField(nextField)}`
+        ? buildStepByStepGuidance(nextField)
         : localizedPromptForField("fullName");
       setMessages((prev) => [...prev, { role: "assistant", content: fallback }]);
       speak(fallback, effectiveLanguage.speechCode, resumeIfVoice);
@@ -878,7 +1142,7 @@ export default function ComplaintPage() {
     } finally {
       setChatLoading(false);
     }
-  }, [chatLoading, isLanguageSelected, speak, applyCollectedFields, t, isFormValid, handleSubmit, setLanguage, findLanguageFromSpeech, maybeAutoSwitchLanguage, isLanguageChangeRequest, isGreetingInput, isComplaintStartIntent, isIdProofAutofillRequest, idFiles, handleIdFilesChange, isNoEmailIntent, isHelpLikeInput, isStepByStepRequest, isExplainQuestion, detectFieldFromText, optionalFieldGuidanceFromText, nextMissingLocalField, localizedPromptForField, localizedDetailedHintForField, language.code]);
+  }, [chatLoading, isLanguageSelected, speak, applyCollectedFields, t, isFormValid, handleSubmit, setLanguage, findLanguageFromSpeech, maybeAutoSwitchLanguage, isLanguageChangeRequest, isGreetingInput, isGreetingOnlyInput, isComplaintStartIntent, isIdProofAutofillRequest, idFiles, handleIdFilesChange, isNoEmailIntent, isHelpLikeInput, isStepByStepRequest, isExplainQuestion, detectFieldFromText, optionalFieldGuidanceFromText, nextMissingLocalField, nextMissingFieldForForm, localizedPromptForField, localizedDetailedHintForField, buildStepByStepGuidance, localizeBackendResponse, language.code, buildWelcomeGreeting, sanitizeFullName, form, normalizePhoneForSubmit, normalizeEmailForSubmit, extractFallbackPhone, extractFallbackEmail, extractEmailFromSpeech, parseSpokenDigits]);
 
   // Keep the ref in sync so onSilence always calls the latest sendMessage
   useEffect(() => {
@@ -896,16 +1160,21 @@ export default function ComplaintPage() {
       if (!isLanguageSelected) {
         const prompt = t("languagePrompt");
         setMessages((prev) => [...prev, { role: "assistant", content: prompt }]);
-        // Avoid STT/TTS overlap so first real user utterance is captured.
-        pauseListening();
-        speak(prompt, "en-IN", () => {
-          if (voiceActiveRef.current) resumeListeningRef.current?.();
-        });
+
+        void (async () => {
+          const allowed = await primeMicrophonePermission();
+          if (!allowed || !voiceActiveRef.current) return;
+          speak(prompt, "en-IN", () => {
+            if (voiceActiveRef.current) {
+              startListening();
+            }
+          });
+        })();
       } else {
         startListening();
       }
     }
-  }, [voiceActive, stopListening, stopSpeaking, startListening, pauseListening, isLanguageSelected, speak, t]);
+  }, [voiceActive, stopListening, stopSpeaking, startListening, isLanguageSelected, speak, t, primeMicrophonePermission]);
 
   const updateForm = (field: keyof ComplaintFormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));

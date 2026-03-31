@@ -154,17 +154,38 @@ interface BackendIdValidationResult {
 }
 
 function getSessionId() {
+  const createSessionId = () => {
+    const randomPart =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `sess-${randomPart}`;
+  };
+
   const key = "cyberguard_session_id";
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
-  const generated = `sess-${crypto.randomUUID()}`;
-  localStorage.setItem(key, generated);
-  return generated;
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const generated = createSessionId();
+    localStorage.setItem(key, generated);
+    return generated;
+  } catch {
+    return createSessionId();
+  }
 }
 
 export function resetChatSession() {
   const key = "cyberguard_session_id";
-  localStorage.setItem(key, `sess-${crypto.randomUUID()}`);
+  const randomPart =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  try {
+    localStorage.setItem(key, `sess-${randomPart}`);
+  } catch {
+    // Ignore storage failures so chat can still proceed with in-memory session ids.
+  }
 }
 
 function adminAuthHeaders() {
@@ -206,10 +227,10 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       const parsed = JSON.parse(body);
       if (Array.isArray(parsed?.detail)) {
         message = parsed.detail
-          .map((item: any) => {
+          .map((item: unknown) => {
             if (typeof item === "string") return item;
-            if (item && typeof item.msg === "string") {
-              const loc = Array.isArray(item.loc) ? item.loc.join(".") : "field";
+            if (item && typeof item === "object" && "msg" in item && typeof item.msg === "string") {
+              const loc = "loc" in item && Array.isArray(item.loc) ? item.loc.join(".") : "field";
               return `${loc}: ${item.msg}`;
             }
             return "Validation error";
@@ -438,9 +459,9 @@ export async function sendChatMessage(
     });
     clearTimeout(timeoutId);
     return { response: response.response, collected_fields: response.collected_fields };
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeoutId);
-    if (err?.name === "AbortError") {
+    if (err instanceof Error && err.name === "AbortError") {
       return { response: "" };
     }
     return { response: "" };

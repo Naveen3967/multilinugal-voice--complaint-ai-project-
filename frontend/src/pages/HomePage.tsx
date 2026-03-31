@@ -1,4 +1,5 @@
-import { LANGUAGES, useLanguage } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/useLanguage";
+import { LANGUAGES } from "@/contexts/languages";
 import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { FileText, Search, Mic, Phone, AlertTriangle, Users, Globe } from "lucide-react";
@@ -112,6 +113,9 @@ export default function HomePage() {
   const handleVoiceMessage = useCallback(async (text: string) => {
     const cleaned = text.trim();
     if (!cleaned) {
+      if (voiceActiveRef.current) {
+        resumeListeningRef.current?.();
+      }
       return;
     }
 
@@ -191,14 +195,14 @@ export default function HomePage() {
     } finally {
       setIsProcessingVoice(false);
     }
-  }, [findLanguageFromSpeech, isLanguageSelected, navigate, setLanguage, speak, t, maybeAutoSwitchLanguage, language.code]);
+  }, [findLanguageFromSpeech, isLanguageSelected, navigate, setLanguage, speak, t, maybeAutoSwitchLanguage, localizeHomeAssistantReply, language.code]);
 
   const {
     isListening,
     startListening,
     stopListening,
-    pauseListening,
     resumeListening,
+    primeMicrophonePermission,
   } = useSpeechToText(handleVoiceMessage);
 
   useEffect(() => {
@@ -231,11 +235,16 @@ export default function HomePage() {
         const prompt = t("languagePrompt");
         setAssistantReply(prompt);
         setShowTranscript(true);
-        // Avoid capturing the app's own prompt audio as user input.
-        pauseListening();
-        speak(prompt, language.speechCode, () => {
-          if (voiceActiveRef.current) resumeListeningRef.current?.();
-        });
+
+        void (async () => {
+          const allowed = await primeMicrophonePermission();
+          if (!allowed || !voiceActiveRef.current) return;
+          speak(prompt, language.speechCode, () => {
+            if (voiceActiveRef.current) {
+              startListening();
+            }
+          });
+        })();
       } else {
         startListening();
       }

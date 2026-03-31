@@ -1,4 +1,4 @@
-import { useLanguage } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/useLanguage";
 import { useNavigate } from "react-router-dom";
 
 export default function ProfilePage() {
